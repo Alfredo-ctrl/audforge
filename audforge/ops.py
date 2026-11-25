@@ -146,6 +146,13 @@ def _treble(ctx, p):
     ctx.af.append(f"treble=g={g:.1f}:f=3000")
 
 
+def _echo(ctx, p):
+    # repeat the sound once, fading; like a room with bare walls
+    delay = _num("echo", p, "delay_ms", 60, lo=10, hi=500)
+    decay = _num("echo", p, "decay", 0.5, lo=0, hi=0.9)
+    ctx.af.append(f"aecho=0.8:0.7:{delay:.0f}:{decay:.2f}")
+
+
 OPS = {
     "trim": {"description": "Keep only start..end (seconds).", "params": {"start": {"type": "number", "default": 0, "min": 0}, "end": {"type": "number", "min": 0}, "duration": {"type": "number", "min": 0.01}}, "build": _trim},
     "speed": {"description": "Play faster or slower, pitch stays natural.", "params": {"factor": {"type": "number", "default": 1, "min": 0.25, "max": 4}}, "build": _speed},
@@ -160,6 +167,7 @@ OPS = {
     "resample": {"description": "Change the sample rate, e.g. 16000 for speech models.", "params": {"rate": {"type": "integer", "min": 8000, "max": 192000}}, "build": _resample},
     "bass": {"description": "Boost or cut the low end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _bass},
     "treble": {"description": "Boost or cut the high end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _treble},
+    "echo": {"description": "One fading repeat, like a room with bare walls. Delay in ms, decay 0 to 0.9.", "params": {"delay_ms": {"type": "number", "default": 60, "min": 10, "max": 500}, "decay": {"type": "number", "default": 0.5, "min": 0, "max": 0.9}}, "build": _echo},
 }
 
 
