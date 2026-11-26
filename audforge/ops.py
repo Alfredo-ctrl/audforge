@@ -153,6 +153,12 @@ def _echo(ctx, p):
     ctx.af.append(f"aecho=0.8:0.7:{delay:.0f}:{decay:.2f}")
 
 
+def _lowpass(ctx, p):
+    # cut the highs above a cutoff: muffled, phone-call sound
+    freq = _num("lowpass", p, "frequency", 3000, lo=100, hi=18000)
+    ctx.af.append(f"lowpass=f={freq:.0f}")
+
+
 OPS = {
     "trim": {"description": "Keep only start..end (seconds).", "params": {"start": {"type": "number", "default": 0, "min": 0}, "end": {"type": "number", "min": 0}, "duration": {"type": "number", "min": 0.01}}, "build": _trim},
     "speed": {"description": "Play faster or slower, pitch stays natural.", "params": {"factor": {"type": "number", "default": 1, "min": 0.25, "max": 4}}, "build": _speed},
@@ -168,6 +174,7 @@ OPS = {
     "bass": {"description": "Boost or cut the low end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _bass},
     "treble": {"description": "Boost or cut the high end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _treble},
     "echo": {"description": "One fading repeat, like a room with bare walls. Delay in ms, decay 0 to 0.9.", "params": {"delay_ms": {"type": "number", "default": 60, "min": 10, "max": 500}, "decay": {"type": "number", "default": 0.5, "min": 0, "max": 0.9}}, "build": _echo},
+    "lowpass": {"description": "Cut everything above a cutoff frequency. Muffled, phone-call sound.", "params": {"frequency": {"type": "number", "default": 3000, "min": 100, "max": 18000}}, "build": _lowpass},
 }
 
 
