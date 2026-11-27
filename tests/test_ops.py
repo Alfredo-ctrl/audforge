@@ -34,6 +34,25 @@ def _make_with_silence(path):
     )
 
 
+def _mean_volume(path, start, duration=0.5):
+    res = subprocess.run(
+        ["ffmpeg", "-v", "info", "-ss", str(start), "-t", str(duration),
+         "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True, check=True)
+    for line in res.stderr.splitlines():
+        if "mean_volume" in line:
+            return float(line.split("mean_volume:")[1].split("dB")[0])
+    raise AssertionError("volumedetect printed no mean_volume")
+
+
+def _make_mono(path):
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+         "-ac", "1", "-c:a", "libmp3lame", path],
+        check=True,
+    )
+
 class TestAudforge(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -130,8 +149,33 @@ class TestAudforge(unittest.TestCase):
         self.assertIn("highpass", ops)
         self.assertEqual(ops["highpass"]["params"]["frequency"]["default"], 100)
 
+    def test_fade_out_fades_the_end_not_the_start(self):
+        out = apply_ops(self.tone, self.out("fade.mp3"),
+                        [{"op": "fade_out", "duration": 1}])
+        self.assertAlmostEqual(out["duration"], 4, delta=0.3)
+        self.assertLess(_mean_volume(self.out("fade.mp3"), 3.5),
+                        _mean_volume(self.out("fade.mp3"), 0))
+
+    def test_mono_on_mono_file_is_a_noop(self):
+        mono = os.path.join(self.tmp, "mono.mp3")
+        _make_mono(mono)
+        self.assertEqual(describe(mono)["channels"], 1)
+        out = apply_ops(mono, self.out("mono-out.mp3"), [{"op": "mono"}])
+        self.assertEqual(out["channels"], 1)
+        self.assertAlmostEqual(out["duration"], 4, delta=0.3)
+
+    def test_transcribe_bad_model(self):
+        with self.assertRaises(ValueError):
+            transcribe(self.tone, model="huge")
+
     def test_join(self):
         out = join_audios([self.tone, self.tone], self.out("joined.mp3"))
+        self.assertAlmostEqual(out["duration"], 8, delta=0.5)
+
+    def test_join_with_quote_in_name(self):
+        quoted = os.path.join(self.tmp, "it's.mp3")
+        shutil.copy(self.tone, quoted)
+        out = join_audios([self.tone, quoted], self.out("joined-q.mp3"))
         self.assertAlmostEqual(out["duration"], 8, delta=0.5)
 
     def test_unknown_op_and_bad_param(self):
