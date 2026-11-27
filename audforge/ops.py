@@ -159,6 +159,12 @@ def _lowpass(ctx, p):
     ctx.af.append(f"lowpass=f={freq:.0f}")
 
 
+def _highpass(ctx, p):
+    # cut the lows below a cutoff: thin, tiny-speaker sound
+    freq = _num("highpass", p, "frequency", 100, lo=20, hi=10000)
+    ctx.af.append(f"highpass=f={freq:.0f}")
+
+
 OPS = {
     "trim": {"description": "Keep only start..end (seconds).", "params": {"start": {"type": "number", "default": 0, "min": 0}, "end": {"type": "number", "min": 0}, "duration": {"type": "number", "min": 0.01}}, "build": _trim},
     "speed": {"description": "Play faster or slower, pitch stays natural.", "params": {"factor": {"type": "number", "default": 1, "min": 0.25, "max": 4}}, "build": _speed},
@@ -175,6 +181,7 @@ OPS = {
     "treble": {"description": "Boost or cut the high end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _treble},
     "echo": {"description": "One fading repeat, like a room with bare walls. Delay in ms, decay 0 to 0.9.", "params": {"delay_ms": {"type": "number", "default": 60, "min": 10, "max": 500}, "decay": {"type": "number", "default": 0.5, "min": 0, "max": 0.9}}, "build": _echo},
     "lowpass": {"description": "Cut everything above a cutoff frequency. Muffled, phone-call sound.", "params": {"frequency": {"type": "number", "default": 3000, "min": 100, "max": 18000}}, "build": _lowpass},
+    "highpass": {"description": "Cut everything below a cutoff frequency. Thin, tiny-speaker sound.", "params": {"frequency": {"type": "number", "default": 100, "min": 20, "max": 10000}}, "build": _highpass},
 }
 
 

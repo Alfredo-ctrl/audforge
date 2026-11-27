@@ -121,6 +121,15 @@ class TestAudforge(unittest.TestCase):
         self.assertIn("lowpass", ops)
         self.assertEqual(ops["lowpass"]["params"]["frequency"]["default"], 3000)
 
+    def test_highpass(self):
+        out = apply_ops(self.tone, self.out("highpass.mp3"),
+                        [{"op": "highpass", "frequency": 200}])
+        self.assertAlmostEqual(out["duration"], 4, delta=0.5)
+        self.assertTrue(os.path.getsize(self.out("highpass.mp3")) > 1000)
+        ops = list_ops()
+        self.assertIn("highpass", ops)
+        self.assertEqual(ops["highpass"]["params"]["frequency"]["default"], 100)
+
     def test_join(self):
         out = join_audios([self.tone, self.tone], self.out("joined.mp3"))
         self.assertAlmostEqual(out["duration"], 8, delta=0.5)
