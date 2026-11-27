@@ -1,11 +1,17 @@
-"""Audio ops. One op = one entry in OPS plus one small builder below.
+"""Audio ops over ffmpeg. One op = one entry in OPS plus one small builder.
 
-Every op turns into ffmpeg audio filters, so the whole edit runs in one
-ffmpeg call. No GUI, no account, just ffmpeg doing the work.
+Builders only collect filters in a Ctx; audio.py runs the single ffmpeg
+call. Number parsing and trim live in forge_common.ffmpeg, shared with
+vidforge.
 """
 
 import json
-import subprocess
+
+from forge_common.ffmpeg import atempo_chain as _atempo_chain
+from forge_common.ffmpeg import num as _num
+from forge_common.ffmpeg import probe_raw
+from forge_common.ffmpeg import trim as _trim
+from forge_common.ffmpeg import whole as _int
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
@@ -29,58 +35,8 @@ class Ctx:
         self.start = None
         self.duration = None
         self.audio_format = None  # set by convert: mp3, wav, aac, ogg, flac, m4a
-
-
-def _num(op, params, key, default=None, lo=None, hi=None):
-    v = params.get(key, default)
-    if v is None:
-        raise ValueError(f"'{op}' needs '{key}'")
-    try:
-        v = float(v)
-    except (TypeError, ValueError):
-        raise ValueError(f"'{op}': '{key}' has to be a number, got {params.get(key)!r}")
-    if lo is not None and v < lo:
-        raise ValueError(f"'{op}': '{key}' can't be under {lo}")
-    if hi is not None and v > hi:
-        raise ValueError(f"'{op}': '{key}' can't be over {hi}")
-    return v
-
-
-def _int(op, params, key, default=None, lo=None, hi=None):
-    v = _num(op, params, key, default, lo, hi)
-    if v != int(v):
-        raise ValueError(f"'{op}': '{key}' has to be a whole number")
-    return int(v)
-
-
-def _atempo_chain(factor):
-    # atempo only takes 0.5-2.0, so chain it for bigger changes
-    parts = []
-    f = factor
-    while f > 2.0:
-        parts.append("atempo=2.0")
-        f /= 2.0
-    while f < 0.5:
-        parts.append("atempo=0.5")
-        f /= 0.5
-    parts.append(f"atempo={f:.4f}")
-    return parts
-
-
-def _trim(ctx, p):
-    start = _num("trim", p, "start", 0, lo=0)
-    end = p.get("end")
-    dur = p.get("duration")
-    if end is not None and dur is not None:
-        raise ValueError("'trim': give 'end' or 'duration', not both")
-    if end is not None:
-        end = _num("trim", p, "end", lo=0)
-        if end <= start:
-            raise ValueError("'trim': 'end' has to be after 'start'")
-        ctx.duration = end - start
-    elif dur is not None:
-        ctx.duration = _num("trim", p, "duration", lo=0.01)
-    ctx.start = start
+        self.fade_out_durations = []
+        self.mono = False
 
 
 def _speed(ctx, p):
@@ -112,8 +68,9 @@ def _fade_in(ctx, p):
 
 
 def _fade_out(ctx, p):
-    d = _num("fade_out", p, "duration", lo=0.1, hi=30)
-    ctx.af.append(f"afade=t=out:st=0:d={d:.2f}")
+    # the start time needs the clip length, which audio.py knows; it builds
+    # the filter there instead of writing a wrong st=0 here
+    ctx.fade_out_durations.append(_num("fade_out", p, "duration", lo=0.1, hi=30))
 
 
 def _reverse(ctx, p):
@@ -128,7 +85,9 @@ def _convert(ctx, p):
 
 
 def _mono(ctx, p):
-    ctx.af.append("pan=mono|c0=0.5*c0+0.5*c1")
+    # audio.py decides the filter after probing: a mono file needs no pan,
+    # and pan with c1 fails on it
+    ctx.mono = True
 
 
 def _resample(ctx, p):
@@ -147,20 +106,17 @@ def _treble(ctx, p):
 
 
 def _echo(ctx, p):
-    # repeat the sound once, fading; like a room with bare walls
     delay = _num("echo", p, "delay_ms", 60, lo=10, hi=500)
     decay = _num("echo", p, "decay", 0.5, lo=0, hi=0.9)
     ctx.af.append(f"aecho=0.8:0.7:{delay:.0f}:{decay:.2f}")
 
 
 def _lowpass(ctx, p):
-    # cut the highs above a cutoff: muffled, phone-call sound
     freq = _num("lowpass", p, "frequency", 3000, lo=100, hi=18000)
     ctx.af.append(f"lowpass=f={freq:.0f}")
 
 
 def _highpass(ctx, p):
-    # cut the lows below a cutoff: thin, tiny-speaker sound
     freq = _num("highpass", p, "frequency", 100, lo=20, hi=10000)
     ctx.af.append(f"highpass=f={freq:.0f}")
 
@@ -175,7 +131,7 @@ OPS = {
     "fade_out": {"description": "Fade out to silence at the end.", "params": {"duration": {"type": "number", "min": 0.1, "max": 30}}, "build": _fade_out},
     "reverse": {"description": "Play the audio backwards.", "params": {}, "build": _reverse},
     "convert": {"description": "Save as another format: mp3, wav, aac, ogg, flac or m4a.", "params": {"format": {"type": "string", "enum": sorted(CODECS), "default": "mp3"}}, "build": _convert},
-    "mono": {"description": "Mix down to one channel.", "params": {}, "build": _mono},
+    "mono": {"description": "Mix down to one channel. Already mono: does nothing.", "params": {}, "build": _mono},
     "resample": {"description": "Change the sample rate, e.g. 16000 for speech models.", "params": {"rate": {"type": "integer", "min": 8000, "max": 192000}}, "build": _resample},
     "bass": {"description": "Boost or cut the low end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _bass},
     "treble": {"description": "Boost or cut the high end, -15 to 15 dB.", "params": {"gain_db": {"type": "number", "min": -15, "max": 15}}, "build": _treble},
@@ -207,14 +163,7 @@ def build_ctx(ops):
 
 def probe(path):
     """ffprobe as a dict: duration, sample rate, channels, codec, format."""
-    try:
-        out = subprocess.run(
-            [FFPROBE, "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path],
-            capture_output=True, text=True, check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        raise ValueError(f"can't read '{path}': {e}")
-    data = json.loads(out.stdout)
+    data = probe_raw(path)
     info = {"duration": None, "sample_rate": None, "channels": None, "codec": None, "format": None}
     for s in data.get("streams", []):
         if s.get("codec_type") == "audio":
