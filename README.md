@@ -1,6 +1,6 @@
 # audforge
 
-Audio editing for AI agents. No GUI, no account, no vendor lock-in: a CLI, a Python API and an MCP server that any agent can drive — Muse, Antigravity, Codex, Claude Code, or a local model.
+Trim, normalize and convert audio from the terminal. It wraps ffmpeg's audio filters in small named ops, so a podcast edit is a list — trim, normalize, fade_out — instead of a filter string you have to look up.
 
 It shells out to ffmpeg, so install that first (`apt install ffmpeg` / `brew install ffmpeg`).
 
@@ -51,13 +51,13 @@ audforge transcribe -i interview.mp3 --model tiny --language es
 
 ## How an agent uses it
 
-You translate the user's words into ops. `audforge ops` lists every operation with its parameters and valid ranges, so there is nothing to guess. Examples:
+You turn the user's words into ops. `audforge ops` lists every operation with its parameters and valid ranges, so there is nothing to guess. The usual requests:
 
 - "cut the first 5 seconds and make it mono" -> trim, mono
 - "this podcast is too quiet and uneven" -> normalize
 - "turn this into a 16kHz wav for my model" -> convert, resample
 
-If the user asks for something that is not an op yet, add it — see CONTRIBUTING.md. That is the whole point: the tool grows with what people ask for.
+Missing an op? CONTRIBUTING.md explains how to add one — same shape as the rest, with a test on the fixture audio.
 
 ## Use it from Python
 
@@ -74,7 +74,7 @@ print(transcribe("interview.mp3", model="tiny", language="es")["text"])
 
 ## MCP server
 
-Any MCP client can use audforge as tools:
+Any MCP client can use audforge as tools, including transcribe_audio:
 
 ```sh
 audforge mcp
